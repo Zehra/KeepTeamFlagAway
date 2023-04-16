@@ -61,12 +61,12 @@ int checkPlayerSlot(int player);
 class KeepTeamFlagAway : public bz_Plugin
 {
 public:
-  const char* Name(){return "KeepTeamFlagAway[0.0.0]";}
+  const char* Name(){return "KeepTeamFlagAway[0.0.1]";}
   void Init ( const char* /*config*/ );
   void Event(bz_EventData *eventData );
   void Cleanup ( void );
   int playerGrabbed[200];
-  int timerCount[200][2];
+  int timerCount[200];
   int count = 30;
   double timePassed;
   double timeInterval = 1.0;
@@ -78,8 +78,7 @@ BZ_PLUGIN(KeepTeamFlagAway)
 void KeepTeamFlagAway::Init (const char* commandLine) {
   for(int i=0;i<=199;i++){
     playerGrabbed[i]=0;
-    timerCount[i][0]=0;
-    timerCount[i][1]=0;
+    timerCount[i]=0;
   }
   Register(bz_ePlayerJoinEvent);
   Register(bz_ePlayerPartEvent);
@@ -101,8 +100,7 @@ void KeepTeamFlagAway::Event(bz_EventData *eventData ){
       // Check and reset player
       if (checkPlayerSlot(player) == 1) {
         playerGrabbed[player]=0;
-        timerCount[player][0]=0;
-        timerCount[player][1]=0;
+        timerCount[player]=0;
       } 
     }break;
 
@@ -112,8 +110,7 @@ void KeepTeamFlagAway::Event(bz_EventData *eventData ){
       // Check and reset player
       if (checkPlayerSlot(player) == 1) {
         playerGrabbed[player]=0;
-        timerCount[player][0]=0;
-        timerCount[player][1]=0;
+        timerCount[player]=0;
       } 
     }break;
 
@@ -124,8 +121,7 @@ void KeepTeamFlagAway::Event(bz_EventData *eventData ){
       // Check and reset player
       if (checkPlayerSlot(player) == 1) {
         playerGrabbed[player]=0;
-        timerCount[player][0]=0;
-        timerCount[player][1]=0;
+        timerCount[player]=0;
       }
     }break;
 
@@ -133,8 +129,7 @@ void KeepTeamFlagAway::Event(bz_EventData *eventData ){
       bz_FlagGrabbedEventData_V1* flagGrabData = (bz_FlagGrabbedEventData_V1*)eventData;
       int player = flagGrabData->playerID;
       if (checkPlayerSlot(player)==1) {
-          timerCount[player][0]=0;
-          timerCount[player][1]=0;
+          timerCount[player]=0;
           playerGrabbed[player]=0;
           // Reset all again
           bz_eTeamType flagTeam = flagToTeamValue(flagGrabData->flagType);
@@ -153,8 +148,7 @@ void KeepTeamFlagAway::Event(bz_EventData *eventData ){
       int player = flagDropData->playerID;
       // Check and reset player
       if (checkPlayerSlot(player)==1) {
-          timerCount[player][0]=0;
-          timerCount[player][1]=0;
+          timerCount[player]=0;
           playerGrabbed[player]=0;
       }  
     }break;
@@ -168,55 +162,64 @@ void KeepTeamFlagAway::Event(bz_EventData *eventData ){
             // Update timer.
             for (int i = 0; i <= 199; i++) {
                 if(playerGrabbed[i]==1) {
-                // ^this is if someone matched the conditionals.
-                    timerCount[i][0] += 1;
-                    // Update timer if matched.
-                    if (timerCount[i][0] >= count) {
+                // ^We continue and we assume they are holding the flag.
+                // Compare this to always checking if they have a flag from every player... 
+                    timerCount[i] += 1;
+                    // Timers are only supposed to update for players holding a flag.
+                    if (timerCount[i] >= count) {
+                        // If they reached here, it is either the first or second stage.
+                        // Perhaps it is possible to miss it and trigger some other issues.
                         // updates match counter value.
-                        if (timerCount[i][1] == 0) {
-                            // ^Since we haven't reached second stage, it is zero.
+                        if ((timerCount[i] == count) || (timerCount[i] == (count * 2))) {
+                            // ^Tradeoff of efficiency vs neatness/reduced size of code.
+                            int withinSet = -1;
                             bz_BasePlayerRecord *playRec = bz_getPlayerByIndex ( i );
+                            // BasePlayerRecord is being used for the sake of efficiency in this case.
+                            // A.k.a. we need to pull up lots of player info for our calculations.
                             if (playRec) {
                                 if ((playRec->currentFlagID == -1) || (playRec->spawned == false)) {
+                                    // Normally we could simply check if it just the flag is being held.
+                                    // Checking if the player is alive is a failsafe.
                                     playerGrabbed[i]=0;
+                                    timerCount[i]=0;
                                 } else {
                                     // The reason we don't just grab the flag name, is since record offers non-abbre version
                                     bz_eTeamType teamSet = flagToTeamValue(bz_getFlagName(playRec->currentFlagID).c_str());
                                     // ^which is what is needed for flagToTeamValue to work.
                                     if ((teamSet != eNoTeam) && (playRec->team != teamSet)) {
-                                        killTeamByPlayer(teamSet, i);
-                                        timerCount[i][1] = timerCount[i][0];
+                                        withinSet = 1;
+                                        //^ Set when it's a team flag and it isn't part of a players own team.
                                     } else {
+                                        // We reset if we don't have sensible conditions.
                                         playerGrabbed[i]=0;
+                                        timerCount[i]=0;
                                     }
-                                }
-                            
-                            }
-                            bz_freePlayerRecord(playRec);
-                            timerCount[i][0] = 0;
-                        } else {
-                            // if alive and with flag, cap if not rogue, else geno, else reset
-                            bz_BasePlayerRecord *playRec = bz_getPlayerByIndex ( i );
-                            if (playRec) {
-                                if ((playRec->currentFlagID == -1) || (playRec->spawned == false)) {
-                                    playerGrabbed[i]=0;
-                                } else {
-                                    // The reason we don't just grab the flag name, is since record offers non-abbre version
-                                    bz_eTeamType teamSet = flagToTeamValue(bz_getFlagName(playRec->currentFlagID).c_str());
-                                    // ^which is what is needed for flagToTeamValue to work.
-                                    if ((teamSet != eNoTeam) && (playRec->team != teamSet)) {
+                                    // If they have reached here, it's either second geno for rogues or a cap for a team.
+                                    if ((timerCount[i] == (count * 2)) && (withinSet == 1)) {
                                         if (playRec->team != eRogueTeam) {
                                             bz_triggerFlagCapture(i, playRec->team, teamSet);
                                         } else {
                                             killTeamByPlayer(teamSet, i);
                                         }
-                                    } else {
                                         playerGrabbed[i]=0;
+                                        timerCount[i]=0;
+                                        //@TODO flag reset
+                                    } else {
+                                        if (withinSet == 1) {
+                                            killTeamByPlayer(teamSet, i);
+                                        }
                                     }
+                                    //
                                 }
                             
                             }
                             bz_freePlayerRecord(playRec);
+                        }
+                    
+                        if (timerCount[i] > (count * 2)) {
+                        // ^This should rarely, if ever happen.
+                        // Failsafe if tick event takes too long in updating.
+                            timerCount[i] = ((count * 2) - 1);
                         }
                     }
                     
